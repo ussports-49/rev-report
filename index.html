@@ -235,6 +235,18 @@
       text-align: right;
     }
 
+    .week-tag {
+      display: inline-block;
+      background: rgba(29, 140, 248, 0.14);
+      color: #60a5fa;
+      border: 1px solid rgba(29, 140, 248, 0.3);
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      margin-left: 6px;
+      font-weight: 600;
+    }
+
     .empty-msg {
       color: var(--muted);
       font-size: 12px;
@@ -339,11 +351,12 @@
     </div>
 
     <div class="box">
-      <h2 class="box-title">📅 Kalkulasi Mingguan (Senin – Minggu, UTC 00:00)</h2>
+      <h2 class="box-title">📅 Kalkulasi 5 Periode Mingguan (Senin – Minggu, UTC 00:00)</h2>
       <table>
         <thead>
           <tr>
-            <th>PERIODE PEKAN (UTC 00:00)</th>
+            <th>PERIODE</th>
+            <th>RENTANG TANGGAL (UTC 00:00)</th>
             <th class="center">CONVERSIONS</th>
             <th class="center">UNIQUE MEMBER</th>
             <th class="right">AVG PAYOUT</th>
@@ -357,6 +370,7 @@
 
   <script>
     const API_URL = "https://script.google.com/macros/s/AKfycbwhI0FpEgZ-RNZH37myoBHOgpVB47QOpWzOH08rhK4SeXRI1ifJJjffW7IJLmbdKZWNgQ/exec?action=list";
+    const WEEK_MS = 7 * 86400000;
     let convLogs = [];
     let lastSeenTimestamp = null;
 
@@ -439,6 +453,12 @@
       area.prepend(div);
     }
 
+    function getPeriodLabel(indexFromCurrent) {
+      if (indexFromCurrent === 0) return "Minggu Ini";
+      if (indexFromCurrent === 1) return "Minggu Lalu";
+      return `${indexFromCurrent} Minggu Lalu`;
+    }
+
     function renderDashboard() {
       const fromVal = document.getElementById("date-from").value;
       const toVal = document.getElementById("date-to").value;
@@ -447,15 +467,31 @@
       const fromMs = fromVal ? new Date(fromVal + "T00:00:00Z").getTime() : null;
       const toMs = toVal ? new Date(toVal + "T23:59:59.999Z").getTime() : null;
 
-      const currentWeekStartMs = getUtcMondayStartMs(new Date());
-      const currentWeekEndMs = currentWeekStartMs + 7 * 86400000;
+      const now = new Date();
+      const currentWeekStartMs = getUtcMondayStartMs(now);
+      const currentWeekEndMs = currentWeekStartMs + WEEK_MS;
+
+      // Siapkan 5 periode mingguan otomatis (indeks 0 = Minggu Ini di paling atas, sampai 4 = 4 Minggu Lalu)
+      const fivePeriods = [];
+      for (let i = 0; i < 5; i++) {
+        const startMs = currentWeekStartMs - (i * WEEK_MS);
+        const endMs = startMs + WEEK_MS;
+        fivePeriods.push({
+          index: i,
+          label: getPeriodLabel(i),
+          startMs,
+          endMs,
+          conversions: 0,
+          payout: 0,
+          members: new Set()
+        });
+      }
 
       let totalConv = 0;
       let totalPayout = 0;
       let currentWeekPayout = 0;
 
       const memberMap = {};
-      const weekMap = {};
       const filteredRows = [];
 
       convLogs.forEach(row => {
@@ -467,37 +503,36 @@
         const p = parseFloat(row.payout) || 0;
         const member = String(row.affS1 || "").trim() || "-";
 
-        if (isConv && ts >= currentWeekStartMs && ts < currentWeekEndMs) {
+        if (!isConv) return;
+
+        // Hitung ke 5 periode mingguan otomatis (independen terhadap filter tanggal atas)
+        for (let i = 0; i < fivePeriods.length; i++) {
+          const per = fivePeriods[i];
+          if (ts >= per.startMs && ts < per.endMs) {
+            per.conversions += 1;
+            per.payout += p;
+            per.members.add(member);
+            break;
+          }
+        }
+
+        if (ts >= currentWeekStartMs && ts < currentWeekEndMs) {
           currentWeekPayout += p;
         }
 
+        // Filter rentang tanggal aktif untuk kartu statistik, Top Member, dan Riwayat
         if (fromMs !== null && ts < fromMs) return;
         if (toMs !== null && ts > toMs) return;
 
-        if (isConv) {
-          totalConv += 1;
-          totalPayout += p;
-          filteredRows.push({ row, dt });
+        totalConv += 1;
+        totalPayout += p;
+        filteredRows.push({ row, dt });
 
-          if (!memberMap[member]) {
-            memberMap[member] = { member, leads: 0, payout: 0 };
-          }
-          memberMap[member].leads += 1;
-          memberMap[member].payout += p;
-
-          const wkStartMs = getUtcMondayStartMs(dt);
-          if (!weekMap[wkStartMs]) {
-            weekMap[wkStartMs] = {
-              startMs: wkStartMs,
-              conversions: 0,
-              payout: 0,
-              members: new Set()
-            };
-          }
-          weekMap[wkStartMs].conversions += 1;
-          weekMap[wkStartMs].payout += p;
-          weekMap[wkStartMs].members.add(member);
+        if (!memberMap[member]) {
+          memberMap[member] = { member, leads: 0, payout: 0 };
         }
+        memberMap[member].leads += 1;
+        memberMap[member].payout += p;
       });
 
       document.getElementById("stat-conv").textContent = totalConv;
@@ -543,28 +578,26 @@
         }).join("");
       }
 
-      // Kalkulasi Mingguan (Senin - Minggu UTC 00:00)
-      const weeksSorted = Object.values(weekMap).sort((a, b) => b.startMs - a.startMs);
+      // Kalkulasi 5 Periode Mingguan (Senin - Minggu UTC 00:00)
       const weeklyBody = document.getElementById("weekly-body");
-      if (weeksSorted.length === 0) {
-        weeklyBody.innerHTML = `<tr><td colspan="5" class="empty-msg">Belum ada data mingguan di rentang tanggal ini.</td></tr>`;
-      } else {
-        weeklyBody.innerHTML = weeksSorted.map(w => {
-          const monDate = new Date(w.startMs);
-          const sunDate = new Date(w.startMs + 6 * 86400000);
-          const label = `Sen ${toUtcDateStr(monDate)} 00:00 UTC — Min ${toUtcDateStr(sunDate)} 23:59 UTC`;
-          const avg = w.conversions > 0 ? (w.payout / w.conversions) : 0;
-          return `
-            <tr>
-              <td>${label}</td>
-              <td class="center">${w.conversions}</td>
-              <td class="center">${w.members.size}</td>
-              <td class="right">$${avg.toFixed(2)}</td>
-              <td class="payout-green">$${w.payout.toFixed(2)}</td>
-            </tr>
-          `;
-        }).join("");
-      }
+      weeklyBody.innerHTML = fivePeriods.map(per => {
+        const monDate = new Date(per.startMs);
+        const sunDate = new Date(per.startMs + 6 * 86400000);
+        const rangeText = `${toUtcDateStr(monDate)} (Sen 00:00 UTC) — ${toUtcDateStr(sunDate)} (Min 23:59 UTC)`;
+        const avg = per.conversions > 0 ? (per.payout / per.conversions) : 0;
+        const badge = per.index === 0 ? `<span class="week-tag">AKTIF</span>` : "";
+
+        return `
+          <tr>
+            <td><strong>${per.label}</strong>${badge}</td>
+            <td>${rangeText}</td>
+            <td class="center">${per.conversions}</td>
+            <td class="center">${per.members.size}</td>
+            <td class="right">$${avg.toFixed(2)}</td>
+            <td class="payout-green">$${per.payout.toFixed(2)}</td>
+          </tr>
+        `;
+      }).join("");
     }
 
     async function loadData() {

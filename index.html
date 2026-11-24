@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Conversion Monitor</title>
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --card: #131a26;
+      --border: #233044;
+      --text: #e5edf7;
+      --muted: #8fa1b9;
+      --accent: #22c55e;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .badge-live {
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(34, 197, 94, 0.15);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.35);
+    }
+
+    #notif-area {
+      margin-bottom: 14px;
+    }
+
+    .toast {
+      background: #14532d;
+      border: 1px solid #22c55e;
+      color: #dcfce7;
+      padding: 12px 14px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .table-wrap {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 680px;
+    }
+
+    th, td {
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      font-size: 13px;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Live Conversion & Click Log</h1>
+      <span class="badge-live">Auto-sync tiap 4 detik</span>
+    </div>
+
+    <div id="notif-area"></div>
+
+    <div class="table-wrap">
+      <table id="log-table">
+        <thead>
+          <tr>
+            <th>Waktu Server</th>
+            <th>Status</th>
+            <th>Payout</th>
+            <th>Currency</th>
+            <th>SubID (affS1)</th>
+            <th>Created At</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = "https://script.google.com/macros/s/AKfycbx_diueof-cm3XtEjZ2GHmXu2HpXHeyiWlzkhiZTR4j_TDQacQiHi9zkpRVplh44Pq0DQ/exec?action=list";
+    let lastSeenTimestamp = null;
+
+    async function loadConversions() {
+      try {
+        const res = await fetch(API_URL);
+        const json = await res.json();
+        if (!json.ok || !Array.isArray(json.logs)) return;
+
+        const cleanLogs = json.logs.filter(item => item.status || item.payout || item.affS1);
+
+        if (cleanLogs.length > 0) {
+          const newest = cleanLogs[0];
+          if (lastSeenTimestamp && newest.timestamp_server !== lastSeenTimestamp) {
+            showToast(`Konversi Baru! ${newest.payout || ""} ${newest.currency || ""} (${newest.status || ""}) — SubID: ${newest.affS1 || "-"}`);
+          }
+          lastSeenTimestamp = newest.timestamp_server;
+        }
+
+        const tbody = document.querySelector("#log-table tbody");
+        tbody.innerHTML = cleanLogs.map(row => `
+          <tr>
+            <td>${row.timestamp_server || ""}</td>
+            <td>${row.status || ""}</td>
+            <td>${row.payout || ""}</td>
+            <td>${row.currency || ""}</td>
+            <td>${row.affS1 || ""}</td>
+            <td>${row.createdAt || ""}</td>
+          </tr>
+        `).join("");
+      } catch (err) {
+        console.error("Gagal memuat data:", err);
+      }
+    }
+
+    function showToast(msg) {
+      const area = document.getElementById("notif-area");
+      const div = document.createElement("div");
+      div.className = "toast";
+      div.textContent = msg;
+      area.prepend(div);
+    }
+
+    loadConversions();
+    setInterval(loadConversions, 4000);
+  </script>
+</body>
+</html>

@@ -1,608 +1,83 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Live Conversion Tracker</title>
-  <style>
-    :root {
-      --bg: #070a0f;
-      --panel: #0d121a;
-      --panel-2: #121824;
-      --border: #1d2636;
-      --text: #e6edf7;
-      --muted: #7f90a8;
-      --blue: #1d8cf8;
-      --green: #16a34a;
-      --green-bright: #22c55e;
-    }
+var CONV_SPREADSHEET_ID = "1MFOhFsPhIXgWeu44AKCTnzk2jMoNORcqO0v9G6TebvY";
+var CONV_SHEET_NAME = "Conversions";
 
-    * {
-      box-sizing: border-box;
-    }
+// GANTI dengan ID Spreadsheet Manual kamu setelah dibuat:
+var MANUAL_SPREADSHEET_ID = "167iXjkQKhiBjhNi6pvHSsuB_68KYzgatA9fxMANTi2U";
+var MANUAL_SHEET_NAME = "ManualStats";
 
-    body {
-      margin: 0;
-      padding: 24px;
-      background: var(--bg);
-      color: var(--text);
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-    }
+function doGet(e) {
+  var p = (e && e.parameter) ? e.parameter : {};
 
-    .wrap {
-      max-width: 1360px;
-      margin: 0 auto;
-    }
+  if (p.action === "list") {
+    return getCombinedJson();
+  }
 
-    .top-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 16px;
-      flex-wrap: wrap;
-      margin-bottom: 14px;
-    }
+  var ss = SpreadsheetApp.openById(CONV_SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(CONV_SHEET_NAME) || ss.insertSheet(CONV_SHEET_NAME);
 
-    .title-area h1 {
-      margin: 0;
-      font-size: 22px;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(["timestamp_server", "status", "payout", "currency", "affS1", "createdAt"]);
+  }
 
-    .clock-pill {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      padding: 8px 14px;
-      border-radius: 8px;
-      font-size: 12px;
-      color: var(--muted);
-    }
+  sheet.appendRow([
+    new Date().toISOString(),
+    p.status || "",
+    p.payout || "",
+    p.currency || "",
+    p.affS1 || "",
+    p.createdAt || ""
+  ]);
 
-    .clock-pill strong {
-      color: var(--text);
-      font-weight: 600;
-    }
+  return ContentService
+    .createTextOutput("OK")
+    .setMimeType(ContentService.MimeType.TEXT);
+}
 
-    .quick-links {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-bottom: 16px;
-    }
+function doPost(e) {
+  return doGet(e);
+}
 
-    .btn-grad {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 8px 14px;
-      border-radius: 7px;
-      font-size: 12px;
-      font-weight: 600;
-      color: #fff;
-      text-decoration: none;
-      background: linear-gradient(90deg, #0ea5e9, #10b981);
-    }
+function readSheetAsObjects(spreadsheetId, sheetName) {
+  if (!spreadsheetId || spreadsheetId === "ISI_SPREADSHEET_ID_MANUAL_KAMU") {
+    return [];
+  }
+  var ss = SpreadsheetApp.openById(spreadsheetId);
+  var sheet = ss.getSheetByName(sheetName) || ss.getSheets()[0];
+  if (!sheet || sheet.getLastRow() <= 1) {
+    return [];
+  }
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0];
+  var out = [];
 
-    .filter-bar {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 14px 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      flex-wrap: wrap;
-      margin-bottom: 16px;
-    }
-
-    .date-controls {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .date-input {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 7px 10px;
-      border-radius: 6px;
-      font-size: 12px;
-    }
-
-    .btn-generate {
-      background: var(--blue);
-      color: #fff;
-      border: none;
-      padding: 8px 14px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-
-    .range-pills {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
-
-    .range-btn {
-      background: var(--panel-2);
-      border: 1px solid var(--border);
-      color: var(--muted);
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 12px;
-      cursor: pointer;
-    }
-
-    .range-btn.active {
-      background: #1e293b;
-      color: #fff;
-      border-color: #334155;
-    }
-
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(160px, 1fr));
-      gap: 14px;
-      margin-bottom: 16px;
-    }
-
-    @media (max-width: 1050px) {
-      .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
+  for (var i = values.length - 1; i >= 1; i--) {
+    var rowObj = {};
+    var hasAnyValue = false;
+    for (var j = 0; j < headers.length; j++) {
+      var key = String(headers[j] || "").trim();
+      if (!key) continue;
+      var val = values[i][j];
+      if (val !== "" && val !== null && val !== undefined) {
+        hasAnyValue = true;
       }
+      rowObj[key] = val;
     }
-
-    @media (max-width: 600px) {
-      .stats-grid {
-        grid-template-columns: 1fr;
-      }
+    if (hasAnyValue) {
+      out.push(rowObj);
     }
+  }
+  return out;
+}
 
-    .stat-card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 16px;
-    }
+function getCombinedJson() {
+  var convLogs = readSheetAsObjects(CONV_SPREADSHEET_ID, CONV_SHEET_NAME);
+  var manualRows = readSheetAsObjects(MANUAL_SPREADSHEET_ID, MANUAL_SHEET_NAME);
 
-    .stat-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 12px;
-      color: var(--muted);
-      margin-bottom: 12px;
-    }
-
-    .stat-val {
-      font-size: 24px;
-      font-weight: 700;
-    }
-
-    .stat-val.blue {
-      color: #38bdf8;
-    }
-
-    .stat-val.green {
-      color: var(--green-bright);
-    }
-
-    .mid-grid {
-      display: grid;
-      grid-template-columns: 1fr 2fr;
-      gap: 14px;
-      margin-bottom: 16px;
-    }
-
-    @media (max-width: 900px) {
-      .mid-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .box {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 16px;
-    }
-
-    .box-title {
-      font-size: 14px;
-      font-weight: 700;
-      margin: 0 0 14px 0;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .search-input {
-      width: 100%;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 9px 12px;
-      border-radius: 7px;
-      font-size: 12px;
-      margin-bottom: 12px;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-
-    th, td {
-      padding: 10px 12px;
-      font-size: 12px;
-      border-bottom: 1px solid var(--border);
-      text-align: left;
-    }
-
-    th {
-      color: var(--muted);
-      font-weight: 600;
-      background: rgba(255, 255, 255, 0.015);
-      text-transform: uppercase;
-      font-size: 11px;
-    }
-
-    .right {
-      text-align: right;
-    }
-
-    .center {
-      text-align: center;
-    }
-
-    .payout-green {
-      color: var(--green-bright);
-      font-weight: 600;
-      text-align: right;
-    }
-
-    .empty-msg {
-      color: var(--muted);
-      font-size: 12px;
-      padding: 14px 4px;
-    }
-
-    #notif-area {
-      margin-bottom: 12px;
-    }
-
-    .toast {
-      background: #052e16;
-      border: 1px solid #16a34a;
-      color: #dcfce7;
-      padding: 10px 14px;
-      border-radius: 8px;
-      font-size: 12px;
-      margin-bottom: 8px;
-    }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="top-bar">
-      <div class="title-area">
-        <h1>⚡ Live Conversion Tracker</h1>
-      </div>
-      <div class="clock-pill">
-        Waktu Server: <strong id="server-clock">Memuat...</strong>
-      </div>
-    </div>
-
-    <div class="quick-links">
-      <a class="btn-grad" href="https://publishers.adsterra.com" target="_blank" rel="noopener">↗ Cek Pendapatan Adsterra</a>
-      <a class="btn-grad" href="#" onclick="return false;">↗ Cek Pendapatan 2ads</a>
-    </div>
-
-    <div id="notif-area"></div>
-
-    <div class="filter-bar">
-      <div class="date-controls">
-        <input type="date" id="date-from" class="date-input" />
-        <span style="color:var(--muted);font-size:12px;">-</span>
-        <input type="date" id="date-to" class="date-input" />
-        <button type="button" class="btn-generate" id="btn-generate">↻ Generate</button>
-      </div>
-
-      <div class="range-pills">
-        <button type="button" class="range-btn active" data-range="today">Hari Ini</button>
-        <button type="button" class="range-btn" data-range="yesterday">Kemarin</button>
-        <button type="button" class="range-btn" data-range="week">Minggu Ini</button>
-        <button type="button" class="range-btn" data-range="month">Bulan Ini</button>
-      </div>
-    </div>
-
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-head"><span>Conversion</span><span>🔥</span></div>
-        <div class="stat-val blue" id="stat-conv">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-head"><span>Clicks</span><span>🖱️</span></div>
-        <div class="stat-val" id="stat-clicks">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-head"><span>Host</span><span>🌐</span></div>
-        <div class="stat-val" id="stat-host">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-head"><span>Payout (Earning)</span><span>💰</span></div>
-        <div class="stat-val green" id="stat-payout">$0.00</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-head"><span>Earning (Minggu Ini)</span><span>📅</span></div>
-        <div class="stat-val green" id="stat-week">$0.00</div>
-      </div>
-    </div>
-
-    <div class="mid-grid">
-      <div class="box">
-        <h2 class="box-title">🏆 Top Member</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>MEMBER</th>
-              <th class="center">LEADS</th>
-              <th class="right">USD ($)</th>
-            </tr>
-          </thead>
-          <tbody id="top-member-body"></tbody>
-        </table>
-      </div>
-
-      <div class="box">
-        <h2 class="box-title">📄 Riwayat Konversi Masuk</h2>
-        <input type="text" id="member-filter" class="search-input" placeholder="Ketik nama member untuk memfilter..." />
-        <table>
-          <thead>
-            <tr>
-              <th>TANGGAL</th>
-              <th>MEMBER</th>
-              <th class="right">PAYOUT</th>
-            </tr>
-          </thead>
-          <tbody id="history-body"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="box">
-      <h2 class="box-title">🥧 Detailed Report</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>SUB1</th>
-            <th class="center">HITS</th>
-            <th class="center">UNIQUE CLICKS</th>
-            <th class="center">CONVERSION</th>
-            <th class="center">CR</th>
-            <th class="right">PAYOUT ▼</th>
-          </tr>
-        </thead>
-        <tbody id="detail-body"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <script>
-    const API_URL = "https://script.google.com/macros/s/AKfycbx_diueof-cm3XtEjZ2GHmXu2HpXHeyiWlzkhiZTR4j_TDQacQiHi9zkpRVplh44Pq0DQ/exec?action=list";
-    let allLogs = [];
-    let lastSeenTimestamp = null;
-
-    function updateClock() {
-      const now = new Date();
-      const isoUtc = now.toISOString().replace("T", " ").slice(0, 19) + " UTC";
-      document.getElementById("server-clock").textContent = isoUtc;
-    }
-
-    function toDateInputStr(d) {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      return `${y}-${m}-${day}`;
-    }
-
-    function setQuickRange(mode) {
-      const now = new Date();
-      const todayStr = toDateInputStr(now);
-      const fromEl = document.getElementById("date-from");
-      const toEl = document.getElementById("date-to");
-
-      if (mode === "today") {
-        fromEl.value = todayStr;
-        toEl.value = todayStr;
-      } else if (mode === "yesterday") {
-        const y = new Date(now);
-        y.setDate(y.getDate() - 1);
-        const yStr = toDateInputStr(y);
-        fromEl.value = yStr;
-        toEl.value = yStr;
-      } else if (mode === "week") {
-        const w = new Date(now);
-        w.setDate(w.getDate() - 6);
-        fromEl.value = toDateInputStr(w);
-        toEl.value = todayStr;
-      } else if (mode === "month") {
-        const m = new Date(now.getFullYear(), now.getMonth(), 1);
-        fromEl.value = toDateInputStr(m);
-        toEl.value = todayStr;
-      }
-
-      document.querySelectorAll(".range-btn").forEach(btn => {
-        btn.classList.toggle("active", btn.dataset.range === mode);
-      });
-      renderDashboard();
-    }
-
-    function parseRowDateStr(row) {
-      const raw = String(row.createdAt || row.timestamp_server || "");
-      const m = raw.match(/(\d{4}-\d{2}-\d{2})/);
-      return m ? m[1] : "";
-    }
-
-    function showToast(msg) {
-      const area = document.getElementById("notif-area");
-      const div = document.createElement("div");
-      div.className = "toast";
-      div.textContent = msg;
-      area.prepend(div);
-    }
-
-    function renderDashboard() {
-      const fromVal = document.getElementById("date-from").value;
-      const toVal = document.getElementById("date-to").value;
-      const searchVal = document.getElementById("member-filter").value.trim().toLowerCase();
-
-      const filteredByDate = allLogs.filter(row => {
-        const dStr = parseRowDateStr(row);
-        if (!dStr) return true;
-        if (fromVal && dStr < fromVal) return false;
-        if (toVal && dStr > toVal) return false;
-        return true;
-      });
-
-      const now = new Date();
-      const weekAgo = new Date(now);
-      weekAgo.setDate(weekAgo.getDate() - 6);
-      const weekAgoStr = toDateInputStr(weekAgo);
-
-      let totalConv = 0;
-      let totalPayout = 0;
-      let weekPayout = 0;
-
-      const memberMap = {};
-
-      filteredByDate.forEach(row => {
-        const status = String(row.status || "").toLowerCase();
-        const isConversion = !status || status === "approved" || status === "pending" || status === "conversion";
-        const payoutNum = parseFloat(row.payout) || 0;
-        const member = String(row.affS1 || "unknown").trim() || "unknown";
-        const dStr = parseRowDateStr(row);
-
-        if (isConversion) {
-          totalConv += 1;
-          totalPayout += payoutNum;
-          if (!memberMap[member]) {
-            memberMap[member] = { member, leads: 0, payout: 0 };
-          }
-          memberMap[member].leads += 1;
-          memberMap[member].payout += payoutNum;
-        }
-      });
-
-      allLogs.forEach(row => {
-        const dStr = parseRowDateStr(row);
-        if (!dStr || dStr >= weekAgoStr) {
-          weekPayout += parseFloat(row.payout) || 0;
-        }
-      });
-
-      document.getElementById("stat-conv").textContent = totalConv;
-      document.getElementById("stat-clicks").textContent = totalConv;
-      document.getElementById("stat-host").textContent = Object.keys(memberMap).length;
-      document.getElementById("stat-payout").textContent = "$" + totalPayout.toFixed(2);
-      document.getElementById("stat-week").textContent = "$" + weekPayout.toFixed(2);
-
-      const membersSorted = Object.values(memberMap).sort((a, b) => b.payout - a.payout);
-      const topBody = document.getElementById("top-member-body");
-      if (membersSorted.length === 0) {
-        topBody.innerHTML = `<tr><td colspan="3" class="empty-msg">Belum ada konversi.</td></tr>`;
-      } else {
-        topBody.innerHTML = membersSorted.map(m => `
-          <tr>
-            <td>${m.member}</td>
-            <td class="center">${m.leads}</td>
-            <td class="payout-green">$${m.payout.toFixed(2)}</td>
-          </tr>
-        `).join("");
-      }
-
-      const historyFiltered = filteredByDate.filter(row => {
-        if (!searchVal) return true;
-        const member = String(row.affS1 || "").toLowerCase();
-        return member.includes(searchVal);
-      });
-
-      const histBody = document.getElementById("history-body");
-      if (historyFiltered.length === 0) {
-        histBody.innerHTML = `<tr><td colspan="3" class="empty-msg">Belum ada riwayat konversi masuk.</td></tr>`;
-      } else {
-        histBody.innerHTML = historyFiltered.map(row => {
-          const p = parseFloat(row.payout) || 0;
-          const tgl = String(row.createdAt || row.timestamp_server || "");
-          return `
-            <tr>
-              <td>${tgl}</td>
-              <td>${row.affS1 || "-"}</td>
-              <td class="payout-green">$${p.toFixed(2)}</td>
-            </tr>
-          `;
-        }).join("");
-      }
-
-      const detailBody = document.getElementById("detail-body");
-      if (membersSorted.length === 0) {
-        detailBody.innerHTML = `<tr><td colspan="6" class="empty-msg">Belum ada data SUB1.</td></tr>`;
-      } else {
-        detailBody.innerHTML = membersSorted.map(m => `
-          <tr>
-            <td>${m.member.toUpperCase()}</td>
-            <td class="center">${m.leads}</td>
-            <td class="center">${m.leads}</td>
-            <td class="center">${m.leads}</td>
-            <td class="center">100.00%</td>
-            <td class="payout-green">$${m.payout.toFixed(2)}</td>
-          </tr>
-        `).join("");
-      }
-    }
-
-    async function loadData() {
-      try {
-        const res = await fetch(API_URL);
-        const json = await res.json();
-        if (!json.ok || !Array.isArray(json.logs)) return;
-
-        const clean = json.logs.filter(item => item.status || item.payout || item.affS1);
-        if (clean.length > 0) {
-          const newest = clean[0];
-          if (lastSeenTimestamp && newest.timestamp_server !== lastSeenTimestamp) {
-            showToast(`Konversi Baru! ${newest.payout || "0.00"} ${newest.currency || "USD"} (${newest.status || "approved"}) — Member/SubID: ${newest.affS1 || "-"}`);
-          }
-          lastSeenTimestamp = newest.timestamp_server;
-        }
-
-        allLogs = clean;
-        renderDashboard();
-      } catch (e) {
-        console.error("Error fetch data:", e);
-      }
-    }
-
-    document.querySelectorAll(".range-btn").forEach(btn => {
-      btn.addEventListener("click", () => setQuickRange(btn.dataset.range));
-    });
-    document.getElementById("btn-generate").addEventListener("click", renderDashboard);
-    document.getElementById("member-filter").addEventListener("input", renderDashboard);
-
-    updateClock();
-    setInterval(updateClock, 1000);
-    setQuickRange("month");
-    loadData();
-    setInterval(loadData, 4000);
-  </script>
-</body>
-</html>
+  return ContentService
+    .createTextOutput(JSON.stringify({
+      ok: true,
+      logs: convLogs,
+      manual: manualRows
+    }))
+    .setMimeType(ContentService.MimeType.JSON);
+}

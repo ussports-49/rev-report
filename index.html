@@ -434,6 +434,7 @@
       weekAgo.setDate(weekAgo.getDate() - 6);
       const weekAgoStr = toDateInputStr(weekAgo);
 
+      // 1. Data konversi postback (spreadsheet Conversions)
       const filteredConv = convLogs.filter(row => {
         const dStr = extractDateStr(row.createdAt || row.timestamp_server);
         if (!dStr) return false;
@@ -473,6 +474,7 @@
         }
       });
 
+      // 2. Data manual SuperSmartlink (spreadsheet SUPERSMARTLINK REPORT)
       const filteredManual = manualRows.filter(row => {
         const dStr = extractDateStr(row["Day"] || row["date"]);
         if (!dStr) return false;
@@ -501,9 +503,10 @@
         }
       });
 
-      const totalConversionDisplay = postbackConvCount > 0 ? postbackConvCount : manualConvCount;
-      const totalPayoutDisplay = postbackPayout > 0 ? postbackPayout : manualPayout;
-      const totalWeekDisplay = postbackWeekPayout > 0 ? postbackWeekPayout : manualWeekPayout;
+      // Total gabungan akurat (postback + manual sesuai rentang tanggal)
+      const totalConversionDisplay = postbackConvCount + manualConvCount;
+      const totalPayoutDisplay = postbackPayout + manualPayout;
+      const totalWeekDisplay = postbackWeekPayout + manualWeekPayout;
 
       document.getElementById("stat-conv").textContent = totalConversionDisplay;
       document.getElementById("stat-clicks").textContent = manualClicks;

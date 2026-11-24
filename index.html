@@ -137,12 +137,12 @@
 
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(5, minmax(160px, 1fr));
+      grid-template-columns: repeat(4, minmax(160px, 1fr));
       gap: 14px;
       margin-bottom: 16px;
     }
 
-    @media (max-width: 1050px) {
+    @media (max-width: 950px) {
       .stats-grid { grid-template-columns: repeat(2, 1fr); }
     }
 
@@ -267,7 +267,7 @@
 
     <div class="quick-links">
       <a class="btn-grad" href="https://publishers.adsterra.com" target="_blank" rel="noopener">↗ Cek Pendapatan Adsterra</a>
-      <a class="btn-grad" href="https://docs.google.com/spreadsheets/d/167iXjkQKhiBjhNi6pvHSsuB_68KYzgatA9fxMANTi2U/edit" target="_blank" rel="noopener">↗ Spreadsheet SuperSmartlink</a>
+      <a class="btn-grad" href="#" onclick="return false;">↗ Cek Pendapatan 2ads</a>
     </div>
 
     <div id="notif-area"></div>
@@ -294,26 +294,22 @@
         <div class="stat-val blue" id="stat-conv">0</div>
       </div>
       <div class="stat-card">
-        <div class="stat-head"><span>Clicks</span><span>🖱️</span></div>
-        <div class="stat-val" id="stat-clicks">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-head"><span>Host (Gross Clicks)</span><span>🌐</span></div>
-        <div class="stat-val" id="stat-host">0</div>
+        <div class="stat-head"><span>Unique Member (affS1)</span><span>👤</span></div>
+        <div class="stat-val" id="stat-members">0</div>
       </div>
       <div class="stat-card">
         <div class="stat-head"><span>Payout (Earning)</span><span>💰</span></div>
         <div class="stat-val green" id="stat-payout">$0.00</div>
       </div>
       <div class="stat-card">
-        <div class="stat-head"><span>Earning (Minggu Ini)</span><span>📅</span></div>
+        <div class="stat-head"><span>Earning (Pekan Ini UTC)</span><span>📅</span></div>
         <div class="stat-val green" id="stat-week">$0.00</div>
       </div>
     </div>
 
     <div class="mid-grid">
       <div class="box">
-        <h2 class="box-title">🏆 Top Member (Postback)</h2>
+        <h2 class="box-title">🏆 Top Member</h2>
         <table>
           <thead>
             <tr>
@@ -343,19 +339,18 @@
     </div>
 
     <div class="box">
-      <h2 class="box-title">🥧 Detailed Report (SuperSmartlink Manual Sheet)</h2>
+      <h2 class="box-title">📅 Kalkulasi Mingguan (Senin – Minggu, UTC 00:00)</h2>
       <table>
         <thead>
           <tr>
-            <th>DAY / SUB1</th>
-            <th class="center">GROSS CLICKS</th>
-            <th class="center">UNIQUE CLICKS</th>
-            <th class="center">CONVERSION</th>
-            <th class="center">CR</th>
+            <th>PERIODE PEKAN (UTC 00:00)</th>
+            <th class="center">CONVERSIONS</th>
+            <th class="center">UNIQUE MEMBER</th>
+            <th class="right">AVG PAYOUT</th>
             <th class="right">PAYOUT ▼</th>
           </tr>
         </thead>
-        <tbody id="detail-body"></tbody>
+        <tbody id="weekly-body"></tbody>
       </table>
     </div>
   </div>
@@ -363,7 +358,6 @@
   <script>
     const API_URL = "https://script.google.com/macros/s/AKfycbwhI0FpEgZ-RNZH37myoBHOgpVB47QOpWzOH08rhK4SeXRI1ifJJjffW7IJLmbdKZWNgQ/exec?action=list";
     let convLogs = [];
-    let manualRows = [];
     let lastSeenTimestamp = null;
 
     function updateClock() {
@@ -372,16 +366,42 @@
       document.getElementById("server-clock").textContent = isoUtc;
     }
 
-    function toDateInputStr(d) {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
+    function toUtcDateStr(d) {
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(d.getUTCDate()).padStart(2, "0");
       return `${y}-${m}-${day}`;
+    }
+
+    function getUtcMondayStartMs(dateObj) {
+      const d = new Date(Date.UTC(
+        dateObj.getUTCFullYear(),
+        dateObj.getUTCMonth(),
+        dateObj.getUTCDate(),
+        0, 0, 0, 0
+      ));
+      const dayOfWeek = d.getUTCDay(); // 0 = Minggu, 1 = Senin, ..., 6 = Sabtu
+      const diffToMonday = (dayOfWeek === 0) ? -6 : (1 - dayOfWeek);
+      d.setUTCDate(d.getUTCDate() + diffToMonday);
+      return d.getTime();
+    }
+
+    function parseUtcDate(rawVal) {
+      if (!rawVal) return null;
+      const str = String(rawVal).trim();
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) return d;
+      const m = str.match(/(\d{4}-\d{2}-\d{2})/);
+      if (m) {
+        const d2 = new Date(m[1] + "T00:00:00Z");
+        if (!isNaN(d2.getTime())) return d2;
+      }
+      return null;
     }
 
     function setQuickRange(mode) {
       const now = new Date();
-      const todayStr = toDateInputStr(now);
+      const todayStr = toUtcDateStr(now);
       const fromEl = document.getElementById("date-from");
       const toEl = document.getElementById("date-to");
 
@@ -389,31 +409,26 @@
         fromEl.value = todayStr;
         toEl.value = todayStr;
       } else if (mode === "yesterday") {
-        const y = new Date(now);
-        y.setDate(y.getDate() - 1);
-        const yStr = toDateInputStr(y);
+        const y = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+        const yStr = toUtcDateStr(y);
         fromEl.value = yStr;
         toEl.value = yStr;
       } else if (mode === "week") {
-        const w = new Date(now);
-        w.setDate(w.getDate() - 6);
-        fromEl.value = toDateInputStr(w);
-        toEl.value = todayStr;
+        const monStart = new Date(getUtcMondayStartMs(now));
+        const sunEnd = new Date(monStart.getTime() + 6 * 86400000);
+        fromEl.value = toUtcDateStr(monStart);
+        toEl.value = toUtcDateStr(sunEnd);
       } else if (mode === "month") {
-        const m = new Date(now.getFullYear(), now.getMonth(), 1);
-        fromEl.value = toDateInputStr(m);
-        toEl.value = todayStr;
+        const mStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+        const mEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
+        fromEl.value = toUtcDateStr(mStart);
+        toEl.value = toUtcDateStr(mEnd);
       }
 
       document.querySelectorAll(".range-btn").forEach(btn => {
         btn.classList.toggle("active", btn.dataset.range === mode);
       });
       renderDashboard();
-    }
-
-    function extractDateStr(rawVal) {
-      const m = String(rawVal || "").match(/(\d{4}-\d{2}-\d{2})/);
-      return m ? m[1] : "";
     }
 
     function showToast(msg) {
@@ -429,91 +444,68 @@
       const toVal = document.getElementById("date-to").value;
       const searchVal = document.getElementById("member-filter").value.trim().toLowerCase();
 
-      const now = new Date();
-      const weekAgo = new Date(now);
-      weekAgo.setDate(weekAgo.getDate() - 6);
-      const weekAgoStr = toDateInputStr(weekAgo);
+      const fromMs = fromVal ? new Date(fromVal + "T00:00:00Z").getTime() : null;
+      const toMs = toVal ? new Date(toVal + "T23:59:59.999Z").getTime() : null;
 
-      // 1. Data konversi postback (spreadsheet Conversions)
-      const filteredConv = convLogs.filter(row => {
-        const dStr = extractDateStr(row.createdAt || row.timestamp_server);
-        if (!dStr) return false;
-        if (fromVal && dStr < fromVal) return false;
-        if (toVal && dStr > toVal) return false;
-        return true;
-      });
+      const currentWeekStartMs = getUtcMondayStartMs(new Date());
+      const currentWeekEndMs = currentWeekStartMs + 7 * 86400000;
 
-      let postbackConvCount = 0;
-      let postbackPayout = 0;
-      let postbackWeekPayout = 0;
+      let totalConv = 0;
+      let totalPayout = 0;
+      let currentWeekPayout = 0;
+
       const memberMap = {};
+      const weekMap = {};
+      const filteredRows = [];
 
-      filteredConv.forEach(row => {
+      convLogs.forEach(row => {
+        const dt = parseUtcDate(row.createdAt || row.timestamp_server);
+        if (!dt) return;
+        const ts = dt.getTime();
         const status = String(row.status || "").toLowerCase();
-        const isConv = status === "approved" || status === "pending" || status === "conversion";
+        const isConv = !status || status === "approved" || status === "pending" || status === "conversion";
         const p = parseFloat(row.payout) || 0;
-        const member = String(row.affS1 || "").trim();
+        const member = String(row.affS1 || "").trim() || "-";
 
-        if (isConv && member) {
-          postbackConvCount += 1;
-          postbackPayout += p;
+        if (isConv && ts >= currentWeekStartMs && ts < currentWeekEndMs) {
+          currentWeekPayout += p;
+        }
+
+        if (fromMs !== null && ts < fromMs) return;
+        if (toMs !== null && ts > toMs) return;
+
+        if (isConv) {
+          totalConv += 1;
+          totalPayout += p;
+          filteredRows.push({ row, dt });
+
           if (!memberMap[member]) {
             memberMap[member] = { member, leads: 0, payout: 0 };
           }
           memberMap[member].leads += 1;
           memberMap[member].payout += p;
+
+          const wkStartMs = getUtcMondayStartMs(dt);
+          if (!weekMap[wkStartMs]) {
+            weekMap[wkStartMs] = {
+              startMs: wkStartMs,
+              conversions: 0,
+              payout: 0,
+              members: new Set()
+            };
+          }
+          weekMap[wkStartMs].conversions += 1;
+          weekMap[wkStartMs].payout += p;
+          weekMap[wkStartMs].members.add(member);
         }
       });
 
-      convLogs.forEach(row => {
-        const status = String(row.status || "").toLowerCase();
-        const isConv = status === "approved" || status === "pending" || status === "conversion";
-        const dStr = extractDateStr(row.createdAt || row.timestamp_server);
-        if (isConv && dStr && dStr >= weekAgoStr) {
-          postbackWeekPayout += parseFloat(row.payout) || 0;
-        }
-      });
+      document.getElementById("stat-conv").textContent = totalConv;
+      document.getElementById("stat-members").textContent = Object.keys(memberMap).length;
+      document.getElementById("stat-payout").textContent = "$" + totalPayout.toFixed(2);
+      document.getElementById("stat-week").textContent = "$" + currentWeekPayout.toFixed(2);
 
-      // 2. Data manual SuperSmartlink (spreadsheet SUPERSMARTLINK REPORT)
-      const filteredManual = manualRows.filter(row => {
-        const dStr = extractDateStr(row["Day"] || row["date"]);
-        if (!dStr) return false;
-        if (fromVal && dStr < fromVal) return false;
-        if (toVal && dStr > toVal) return false;
-        return true;
-      });
-
-      let manualClicks = 0;
-      let manualGrossClicks = 0;
-      let manualConvCount = 0;
-      let manualPayout = 0;
-      let manualWeekPayout = 0;
-
-      filteredManual.forEach(row => {
-        manualClicks += parseInt(row["Clicks"], 10) || 0;
-        manualGrossClicks += parseInt(row["Gross clicks"], 10) || 0;
-        manualConvCount += parseInt(row["Conversions"], 10) || 0;
-        manualPayout += parseFloat(row["Payout"]) || 0;
-      });
-
-      manualRows.forEach(row => {
-        const dStr = extractDateStr(row["Day"] || row["date"]);
-        if (dStr && dStr >= weekAgoStr) {
-          manualWeekPayout += parseFloat(row["Payout"]) || 0;
-        }
-      });
-
-      // Total gabungan akurat (postback + manual sesuai rentang tanggal)
-      const totalConversionDisplay = postbackConvCount + manualConvCount;
-      const totalPayoutDisplay = postbackPayout + manualPayout;
-      const totalWeekDisplay = postbackWeekPayout + manualWeekPayout;
-
-      document.getElementById("stat-conv").textContent = totalConversionDisplay;
-      document.getElementById("stat-clicks").textContent = manualClicks;
-      document.getElementById("stat-host").textContent = manualGrossClicks;
-      document.getElementById("stat-payout").textContent = "$" + totalPayoutDisplay.toFixed(2);
-      document.getElementById("stat-week").textContent = "$" + totalWeekDisplay.toFixed(2);
-
+      // Top Member
       const membersSorted = Object.values(memberMap).sort((a, b) => b.payout - a.payout);
       const topBody = document.getElementById("top-member-body");
       if (membersSorted.length === 0) {
@@ -528,52 +520,47 @@
         `).join("");
       }
 
-      const historyFiltered = filteredConv.filter(row => {
-        const member = String(row.affS1 || "").trim();
-        if (!member) return false;
+      // Riwayat Konversi Masuk
+      const historyFiltered = filteredRows.filter(({ row }) => {
         if (!searchVal) return true;
-        return member.toLowerCase().includes(searchVal);
+        return String(row.affS1 || "").toLowerCase().includes(searchVal);
       });
 
       const histBody = document.getElementById("history-body");
       if (historyFiltered.length === 0) {
         histBody.innerHTML = `<tr><td colspan="3" class="empty-msg">Belum ada riwayat konversi masuk.</td></tr>`;
       } else {
-        histBody.innerHTML = historyFiltered.map(row => {
+        histBody.innerHTML = historyFiltered.map(({ row, dt }) => {
           const p = parseFloat(row.payout) || 0;
-          const tgl = String(row.createdAt || row.timestamp_server || "");
+          const tgl = dt.toISOString().replace("T", " ").slice(0, 19) + " UTC";
           return `
             <tr>
               <td>${tgl}</td>
-              <td>${row.affS1}</td>
+              <td>${row.affS1 || "-"}</td>
               <td class="payout-green">$${p.toFixed(2)}</td>
             </tr>
           `;
         }).join("");
       }
 
-      const detailBody = document.getElementById("detail-body");
-      if (filteredManual.length === 0) {
-        detailBody.innerHTML = `<tr><td colspan="6" class="empty-msg">Belum ada data manual di rentang tanggal ini.</td></tr>`;
+      // Kalkulasi Mingguan (Senin - Minggu UTC 00:00)
+      const weeksSorted = Object.values(weekMap).sort((a, b) => b.startMs - a.startMs);
+      const weeklyBody = document.getElementById("weekly-body");
+      if (weeksSorted.length === 0) {
+        weeklyBody.innerHTML = `<tr><td colspan="5" class="empty-msg">Belum ada data mingguan di rentang tanggal ini.</td></tr>`;
       } else {
-        detailBody.innerHTML = filteredManual.map(row => {
-          const dayLabel = extractDateStr(row["Day"] || row["date"]) || String(row["Day"] || "-");
-          const gross = parseInt(row["Gross clicks"], 10) || 0;
-          const unique = parseInt(row["Clicks"], 10) || 0;
-          const conv = parseInt(row["Conversions"], 10) || 0;
-          const cr = row["Conversion rate"] !== undefined && row["Conversion rate"] !== ""
-            ? `${parseFloat(row["Conversion rate"]).toFixed(2)}%`
-            : (unique > 0 ? `${((conv / unique) * 100).toFixed(2)}%` : "0.00%");
-          const pay = parseFloat(row["Payout"]) || 0;
-
+        weeklyBody.innerHTML = weeksSorted.map(w => {
+          const monDate = new Date(w.startMs);
+          const sunDate = new Date(w.startMs + 6 * 86400000);
+          const label = `Sen ${toUtcDateStr(monDate)} 00:00 UTC — Min ${toUtcDateStr(sunDate)} 23:59 UTC`;
+          const avg = w.conversions > 0 ? (w.payout / w.conversions) : 0;
           return `
             <tr>
-              <td>${dayLabel}</td>
-              <td class="center">${gross}</td>
-              <td class="center">${unique}</td>
-              <td class="center">${conv}</td>
-              <td class="center">${cr}</td>
-              <td class="payout-green">$${pay.toFixed(2)}</td>
+              <td>${label}</td>
+              <td class="center">${w.conversions}</td>
+              <td class="center">${w.members.size}</td>
+              <td class="right">$${avg.toFixed(2)}</td>
+              <td class="payout-green">$${w.payout.toFixed(2)}</td>
             </tr>
           `;
         }).join("");
@@ -584,22 +571,18 @@
       try {
         const res = await fetch(API_URL);
         const json = await res.json();
-        if (!json.ok) return;
+        if (!json.ok || !Array.isArray(json.logs)) return;
 
-        const cleanConv = Array.isArray(json.logs)
-          ? json.logs.filter(item => item.status || item.payout || item.affS1)
-          : [];
-
+        const cleanConv = json.logs.filter(item => item.status || item.payout || item.affS1);
         if (cleanConv.length > 0) {
           const newest = cleanConv[0];
           if (lastSeenTimestamp && newest.timestamp_server !== lastSeenTimestamp) {
-            showToast(`Konversi Baru! ${newest.payout || "0.00"} ${newest.currency || "USD"} (${newest.status || "approved"}) — Member/SubID: ${newest.affS1 || "-"}`);
+            showToast(`Konversi Baru! ${newest.payout || "0.00"} ${newest.currency || "USD"} (${newest.status || "approved"}) — Member: ${newest.affS1 || "-"}`);
           }
           lastSeenTimestamp = newest.timestamp_server;
         }
 
         convLogs = cleanConv;
-        manualRows = Array.isArray(json.manual) ? json.manual : [];
         renderDashboard();
       } catch (e) {
         console.error("Error memuat data:", e);
